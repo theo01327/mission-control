@@ -18,7 +18,14 @@ type Task = { id: string; title: string; status: 'ready' | 'in-progress' | 'done
 type LogEntry = { ts: number; jobId: string; action: string; status: string; summary?: string; error?: string; durationMs?: number; jobName?: string };
 type Skill = { id: string; name: string; description?: string; hasReadme: boolean; files: number; updatedAt: number };
 type Project = { id: string; name: string; description?: string; status?: string; hasReadme: boolean; files: number; updatedAt: number };
-type Heartbeat = { config: { every: string; model: string; activeHours: { start: string; end: string } }; lastHeartbeat: number | null; nextHeartbeat: number | null; status: string };
+type HeartbeatRun = { timestamp: number; response: string; status: 'ok' | 'action' | 'unknown'; model?: string; durationMs?: number };
+type Heartbeat = { 
+  config: { every: string; model: string; activeHours: { start: string; end: string } }; 
+  lastHeartbeat: number | null; 
+  nextHeartbeat: number | null; 
+  status: string;
+  runs?: HeartbeatRun[];
+};
 
 function formatRelative(ms: number) {
   const now = Date.now();
@@ -32,7 +39,7 @@ function formatRelative(ms: number) {
 
 function StatusBadge({ status }: { status?: string }) {
   if (status === 'ok') return <span className="flex items-center gap-1 text-xs text-green-500"><CheckCircle size={12} /> OK</span>;
-  if (status === 'error') return <span className="flex items-center gap-1 text-xs text-red-500"><XCircle size={12} /> Error</span>;
+  if (status === 'error' || status === 'action') return <span className="flex items-center gap-1 text-xs text-blue-500"><Zap size={12} /> Action</span>;
   return <span className="flex items-center gap-1 text-xs text-gray-500"><AlertCircle size={12} /> Pending</span>;
 }
 
@@ -56,6 +63,7 @@ export default function Dashboard() {
   const [expandedJob, setExpandedJob] = useState<string | null>(null);
   const [selectedJobLogs, setSelectedJobLogs] = useState<LogEntry[]>([]);
   const [loadingJobLogs, setLoadingJobLogs] = useState(false);
+  const [showHeartbeatLogs, setShowHeartbeatLogs] = useState(false);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -83,7 +91,6 @@ export default function Dashboard() {
       setHeartbeat(heartbeatData);
       setLastRefresh(new Date());
       
-      // Fetch logs in background (slower)
       fetch('/api/logs?limit=15').then(r => r.json()).then(d => setLogs(d.entries || [])).catch(() => {});
     } catch (error) {
       console.error('Fetch error:', error);
@@ -131,25 +138,53 @@ export default function Dashboard() {
         </button>
       </header>
 
-      {/* Heartbeat Status Card */}
+      {/* Heartbeat Status Card - Expandable */}
       {heartbeat && (
-        <div className="mb-4 p-3 bg-gray-950 border border-gray-800 rounded-lg">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Heart size={16} className="text-red-500 animate-pulse" />
-              <span className="font-medium text-sm">Heartbeat</span>
-              <span className="text-xs text-gray-500">every {heartbeat.config.every}</span>
-              <span className="text-xs text-gray-600">({heartbeat.config.model})</span>
-            </div>
-            <div className="text-right text-xs">
-              {heartbeat.lastHeartbeat && (
-                <span className="text-gray-500">Last: {formatRelative(heartbeat.lastHeartbeat)}</span>
-              )}
-              {heartbeat.nextHeartbeat && (
-                <span className="text-green-500 ml-3">Next: {formatRelative(heartbeat.nextHeartbeat)}</span>
-              )}
+        <div className="mb-4 bg-gray-950 border border-gray-800 rounded-lg overflow-hidden">
+          <div 
+            className="p-3 cursor-pointer hover:bg-gray-900/50 transition-colors"
+            onClick={() => setShowHeartbeatLogs(!showHeartbeatLogs)}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                {showHeartbeatLogs ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                <Heart size={16} className="text-red-500 animate-pulse" />
+                <span className="font-medium text-sm">Heartbeat</span>
+                <span className="text-xs text-gray-500">every {heartbeat.config.every}</span>
+                <span className="text-xs text-gray-600">({heartbeat.config.model})</span>
+              </div>
+              <div className="text-right text-xs">
+                {heartbeat.lastHeartbeat && (
+                  <span className="text-gray-500">Last: {formatRelative(heartbeat.lastHeartbeat)}</span>
+                )}
+                {heartbeat.nextHeartbeat && (
+                  <span className="text-green-500 ml-3">Next: {formatRelative(heartbeat.nextHeartbeat)}</span>
+                )}
+              </div>
             </div>
           </div>
+          
+          {/* Heartbeat Logs */}
+          {showHeartbeatLogs && heartbeat.runs && heartbeat.runs.length > 0 && (
+            <div className="border-t border-gray-800 p-3 bg-gray-900/30">
+              <h4 className="text-xs font-medium mb-2">Recent Heartbeats</h4>
+              <div className="space-y-2">
+                {heartbeat.runs.map((run, i) => (
+                  <div key={i} className="text-xs border-l-2 pl-2 py-1 border-gray-700">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <StatusBadge status={run.status} />
+                      <span className="text-gray-500">{formatRelative(run.timestamp)}</span>
+                      {run.durationMs && <span className="text-gray-600">{Math.round(run.durationMs / 1000)}s</span>}
+                      {run.model && <span className="text-gray-600">{run.model}</span>}
+                    </div>
+                    <p className="text-gray-400 line-clamp-2">
+                      {run.status === 'ok' ? 'HEARTBEAT_OK - No action needed' : run.response.slice(0, 200)}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -261,7 +296,13 @@ export default function Dashboard() {
                     <FolderOpen size={14} className="text-blue-400" />
                     <h3 className="font-medium text-sm">{project.name}</h3>
                   </div>
-                  {project.status && <span className="text-xs px-2 py-0.5 bg-blue-900/50 text-blue-300 rounded">{project.status}</span>}
+                  {project.status && (
+                    <span className={`text-xs px-2 py-0.5 rounded ${
+                      project.status.toUpperCase() === 'ACTIVE' ? 'bg-green-900/50 text-green-300' :
+                      project.status.toUpperCase() === 'PLANNING' ? 'bg-blue-900/50 text-blue-300' :
+                      'bg-gray-800 text-gray-400'
+                    }`}>{project.status}</span>
+                  )}
                 </div>
                 {project.description && <p className="text-xs text-gray-500 mt-1 line-clamp-2">{project.description}</p>}
                 <div className="flex items-center gap-3 mt-2 text-xs text-gray-600">
@@ -329,7 +370,7 @@ export default function Dashboard() {
       </div>
 
       <footer className="mt-8 pt-4 border-t border-gray-900 text-center text-xs text-gray-600">
-        Sola Bible App • Mission Control v1.3
+        Sola Bible App • Mission Control v1.4
       </footer>
     </main>
   );
