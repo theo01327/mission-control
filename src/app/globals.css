@@ -2,12 +2,20 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --background: #0a0a0a;
-  --foreground: #ededed;
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
 }
 
+html,
 body {
-  background: var(--background);
-  color: var(--foreground);
+  min-height: 100vh;
+  background: #000;
+  color: #fff;
+}
+
+::selection {
+  background: #fff;
+  color: #000;
 }
