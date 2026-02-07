@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { supabase, Activity } from '@/lib/supabase'
+import { getActivities, Activity } from '@/lib/github'
 
 export default function ActivityFeed() {
   const [activities, setActivities] = useState<Activity[]>([])
@@ -9,36 +9,11 @@ export default function ActivityFeed() {
 
   useEffect(() => {
     loadActivities()
-    
-    // Subscribe to realtime updates
-    const channel = supabase
-      .channel('activities')
-      .on('postgres_changes', { 
-        event: 'INSERT', 
-        schema: 'public', 
-        table: 'activities' 
-      }, (payload) => {
-        setActivities(prev => [payload.new as Activity, ...prev])
-      })
-      .subscribe()
-
-    return () => {
-      supabase.removeChannel(channel)
-    }
   }, [])
 
   async function loadActivities() {
-    const { data, error } = await supabase
-      .from('activities')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(50)
-
-    if (error) {
-      console.error('Error loading activities:', error)
-    } else {
-      setActivities(data || [])
-    }
+    const data = await getActivities()
+    setActivities(data)
     setLoading(false)
   }
 
@@ -68,6 +43,7 @@ export default function ActivityFeed() {
 
 function ActivityCard({ activity }: { activity: Activity }) {
   const typeIcons: Record<string, string> = {
+    commit: '📝',
     task: '✅',
     message: '💬',
     file: '📄',
@@ -87,23 +63,14 @@ function ActivityCard({ activity }: { activity: Activity }) {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
             <h3 className="font-medium truncate">{activity.title}</h3>
-            <span className="text-xs text-gray-500 bg-gray-800 px-2 py-0.5 rounded">
-              {activity.action_type}
-            </span>
+            {activity.sha && (
+              <span className="text-xs text-gray-500 bg-gray-800 px-2 py-0.5 rounded font-mono">
+                {activity.sha}
+              </span>
+            )}
           </div>
-          {activity.description && (
-            <p className="text-gray-400 text-sm line-clamp-2">
-              {activity.description}
-            </p>
-          )}
           <div className="flex items-center gap-4 mt-2 text-xs text-gray-500">
             <span>{date} {time}</span>
-            {activity.tokens_used && (
-              <span>{activity.tokens_used.toLocaleString()} tokens</span>
-            )}
-            {activity.cost_usd && (
-              <span>${activity.cost_usd.toFixed(4)}</span>
-            )}
           </div>
         </div>
       </div>

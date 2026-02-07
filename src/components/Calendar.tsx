@@ -1,33 +1,24 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { supabase, ScheduledTask } from '@/lib/supabase'
+import { getActivities, Activity } from '@/lib/github'
 
 export default function Calendar() {
-  const [tasks, setTasks] = useState<ScheduledTask[]>([])
+  const [activities, setActivities] = useState<Activity[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    loadTasks()
+    loadActivities()
   }, [])
 
-  async function loadTasks() {
-    const { data, error } = await supabase
-      .from('scheduled_tasks')
-      .select('*')
-      .eq('enabled', true)
-      .order('next_run_at', { ascending: true })
-
-    if (error) {
-      console.error('Error loading tasks:', error)
-    } else {
-      setTasks(data || [])
-    }
+  async function loadActivities() {
+    const data = await getActivities()
+    setActivities(data)
     setLoading(false)
   }
 
   if (loading) {
-    return <div className="text-gray-400">Loading scheduled tasks...</div>
+    return <div className="text-gray-400">Loading calendar...</div>
   }
 
   // Get days of current week
@@ -41,14 +32,13 @@ export default function Calendar() {
     return date
   })
 
-  // Group tasks by day
-  const tasksByDay = weekDays.map(day => {
+  // Group activities by day
+  const activitiesByDay = weekDays.map(day => {
     const dayStr = day.toISOString().split('T')[0]
     return {
       date: day,
-      tasks: tasks.filter(task => {
-        if (!task.next_run_at) return false
-        return task.next_run_at.startsWith(dayStr)
+      activities: activities.filter(a => {
+        return a.created_at.startsWith(dayStr)
       })
     }
   })
@@ -66,7 +56,7 @@ export default function Calendar() {
         ))}
         
         {/* Day cells */}
-        {tasksByDay.map(({ date, tasks }) => {
+        {activitiesByDay.map(({ date, activities }) => {
           const isToday = date.toDateString() === today.toDateString()
           
           return (
@@ -82,42 +72,43 @@ export default function Calendar() {
                 {date.getDate()}
               </div>
               
-              {tasks.map(task => (
+              {activities.slice(0, 3).map(activity => (
                 <div 
-                  key={task.id}
+                  key={activity.id}
                   className="text-xs bg-blue-900/50 text-blue-200 rounded px-1 py-0.5 mb-1 truncate"
-                  title={task.name}
+                  title={activity.title}
                 >
-                  {task.next_run_at && new Date(task.next_run_at).toLocaleTimeString([], { 
-                    hour: '2-digit', 
-                    minute: '2-digit' 
-                  })}
-                  {' '}{task.name}
+                  {activity.title.slice(0, 20)}...
                 </div>
               ))}
+              {activities.length > 3 && (
+                <div className="text-xs text-gray-500">
+                  +{activities.length - 3} more
+                </div>
+              )}
             </div>
           )
         })}
       </div>
 
-      {/* Upcoming tasks list */}
+      {/* Recent activity list */}
       <div className="mt-8">
-        <h3 className="text-lg font-medium mb-3">Upcoming Tasks</h3>
-        {tasks.length === 0 ? (
-          <p className="text-gray-500">No scheduled tasks</p>
+        <h3 className="text-lg font-medium mb-3">Recent Activity</h3>
+        {activities.length === 0 ? (
+          <p className="text-gray-500">No recent activity</p>
         ) : (
           <div className="space-y-2">
-            {tasks.slice(0, 10).map(task => (
-              <div key={task.id} className="bg-gray-900 rounded-lg p-3 border border-gray-800">
+            {activities.slice(0, 10).map(activity => (
+              <div key={activity.id} className="bg-gray-900 rounded-lg p-3 border border-gray-800">
                 <div className="flex justify-between items-start">
                   <div>
-                    <h4 className="font-medium">{task.name}</h4>
-                    {task.description && (
-                      <p className="text-sm text-gray-400">{task.description}</p>
+                    <h4 className="font-medium">{activity.title}</h4>
+                    {activity.sha && (
+                      <p className="text-sm text-gray-400 font-mono">{activity.sha}</p>
                     )}
                   </div>
                   <span className="text-xs text-gray-500">
-                    {task.next_run_at && new Date(task.next_run_at).toLocaleString()}
+                    {new Date(activity.created_at).toLocaleString()}
                   </span>
                 </div>
               </div>
