@@ -28,21 +28,32 @@ export async function GET() {
       const projectFiles = await readdir(projectPath).catch(() => []);
       const stats = await stat(projectPath);
       
-      // Try to read PROJECT.md or README.md for description and status
       let description: string | undefined;
       let status: string | undefined;
       
+      // Try PROJECT.md first, then README.md
       for (const readmeFile of ['PROJECT.md', 'README.md']) {
         try {
           const content = await readFile(join(projectPath, readmeFile), 'utf8');
           
-          // Extract status if present (e.g., "Status: Active")
-          const statusMatch = content.match(/Status:\s*(.+)/i);
+          // Extract status (e.g., "## Status: ACTIVE")
+          const statusMatch = content.match(/##\s*Status:\s*(\w+)/i);
           if (statusMatch) status = statusMatch[1].trim();
           
-          // Get description from first non-header paragraph
-          const lines = content.split('\n').filter(l => l.trim() && !l.startsWith('#') && !l.startsWith('Status:'));
-          description = lines[0]?.slice(0, 150);
+          // Extract overview/description (first paragraph after ## Overview)
+          const overviewMatch = content.match(/##\s*Overview\s*\n+([^\n#]+)/i);
+          if (overviewMatch) {
+            description = overviewMatch[1].trim().slice(0, 150);
+          } else {
+            // Fallback: first non-header, non-status line
+            const lines = content.split('\n').filter(l => 
+              l.trim() && 
+              !l.startsWith('#') && 
+              !l.toLowerCase().includes('status:') &&
+              !l.toLowerCase().includes('created:')
+            );
+            description = lines[0]?.slice(0, 150);
+          }
           break;
         } catch {}
       }
@@ -52,14 +63,19 @@ export async function GET() {
         name: entry.name.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
         description,
         status,
-        hasReadme: projectFiles.some(f => f.endsWith('.md')),
+        hasReadme: projectFiles.some(f => f === 'PROJECT.md' || f === 'README.md'),
         files: projectFiles.length,
         updatedAt: stats.mtimeMs,
       });
     }
     
-    // Sort by most recently updated
-    projects.sort((a, b) => b.updatedAt - a.updatedAt);
+    // Sort: ACTIVE first, then by most recently updated
+    projects.sort((a, b) => {
+      const aActive = a.status?.toUpperCase() === 'ACTIVE' ? 1 : 0;
+      const bActive = b.status?.toUpperCase() === 'ACTIVE' ? 1 : 0;
+      if (aActive !== bActive) return bActive - aActive;
+      return b.updatedAt - a.updatedAt;
+    });
     
     return NextResponse.json({ projects });
   } catch (error) {
