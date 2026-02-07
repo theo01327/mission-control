@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { RefreshCw, Clock, Bot, Zap, CheckCircle, XCircle, AlertCircle, ListTodo, FileText, Calendar, ChevronDown, ChevronRight, Wrench, FolderOpen } from 'lucide-react';
+import { RefreshCw, Clock, Bot, Zap, CheckCircle, XCircle, AlertCircle, ListTodo, FileText, Calendar, ChevronDown, ChevronRight, Wrench, FolderOpen, Heart } from 'lucide-react';
 
 type CronJob = {
   id: string;
@@ -18,6 +18,7 @@ type Task = { id: string; title: string; status: 'ready' | 'in-progress' | 'done
 type LogEntry = { ts: number; jobId: string; action: string; status: string; summary?: string; error?: string; durationMs?: number; jobName?: string };
 type Skill = { id: string; name: string; description?: string; hasReadme: boolean; files: number; updatedAt: number };
 type Project = { id: string; name: string; description?: string; status?: string; hasReadme: boolean; files: number; updatedAt: number };
+type Heartbeat = { config: { every: string; model: string; activeHours: { start: string; end: string } }; lastHeartbeat: number | null; nextHeartbeat: number | null; status: string };
 
 function formatRelative(ms: number) {
   const now = Date.now();
@@ -48,6 +49,7 @@ export default function Dashboard() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [skills, setSkills] = useState<Skill[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [heartbeat, setHeartbeat] = useState<Heartbeat | null>(null);
   const [loading, setLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [activeTab, setActiveTab] = useState<string>('cron');
@@ -58,28 +60,31 @@ export default function Dashboard() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [cronRes, agentsRes, sessionsRes, tasksRes, logsRes, skillsRes, projectsRes] = await Promise.all([
+      const [cronRes, agentsRes, sessionsRes, tasksRes, skillsRes, projectsRes, heartbeatRes] = await Promise.all([
         fetch('/api/cron'),
         fetch('/api/agents'),
         fetch('/api/sessions'),
         fetch('/api/tasks'),
-        fetch('/api/logs?limit=20'),
         fetch('/api/skills'),
         fetch('/api/projects'),
+        fetch('/api/heartbeat'),
       ]);
       
-      const [cronData, agentsData, sessionsData, tasksData, logsData, skillsData, projectsData] = await Promise.all([
-        cronRes.json(), agentsRes.json(), sessionsRes.json(), tasksRes.json(), logsRes.json(), skillsRes.json(), projectsRes.json()
+      const [cronData, agentsData, sessionsData, tasksData, skillsData, projectsData, heartbeatData] = await Promise.all([
+        cronRes.json(), agentsRes.json(), sessionsRes.json(), tasksRes.json(), skillsRes.json(), projectsRes.json(), heartbeatRes.json()
       ]);
       
       setCronJobs(cronData.jobs || []);
       setAgents(agentsData.agents || []);
       setSessions(sessionsData.sessions || []);
       setTasks(tasksData.tasks || []);
-      setLogs(logsData.entries || []);
       setSkills(skillsData.skills || []);
       setProjects(projectsData.projects || []);
+      setHeartbeat(heartbeatData);
       setLastRefresh(new Date());
+      
+      // Fetch logs in background (slower)
+      fetch('/api/logs?limit=15').then(r => r.json()).then(d => setLogs(d.entries || [])).catch(() => {});
     } catch (error) {
       console.error('Fetch error:', error);
     }
@@ -115,7 +120,7 @@ export default function Dashboard() {
 
   return (
     <main className="min-h-screen bg-black text-white p-4 md:p-6 max-w-5xl mx-auto font-sans">
-      <header className="flex items-center justify-between mb-6">
+      <header className="flex items-center justify-between mb-4">
         <div>
           <h1 className="text-xl md:text-2xl font-semibold tracking-tight">Mission Control</h1>
           <p className="text-xs md:text-sm text-gray-500">Theo ⚔️ Dashboard</p>
@@ -125,6 +130,28 @@ export default function Dashboard() {
           Refresh
         </button>
       </header>
+
+      {/* Heartbeat Status Card */}
+      {heartbeat && (
+        <div className="mb-4 p-3 bg-gray-950 border border-gray-800 rounded-lg">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Heart size={16} className="text-red-500 animate-pulse" />
+              <span className="font-medium text-sm">Heartbeat</span>
+              <span className="text-xs text-gray-500">every {heartbeat.config.every}</span>
+              <span className="text-xs text-gray-600">({heartbeat.config.model})</span>
+            </div>
+            <div className="text-right text-xs">
+              {heartbeat.lastHeartbeat && (
+                <span className="text-gray-500">Last: {formatRelative(heartbeat.lastHeartbeat)}</span>
+              )}
+              {heartbeat.nextHeartbeat && (
+                <span className="text-green-500 ml-3">Next: {formatRelative(heartbeat.nextHeartbeat)}</span>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {lastRefresh && <p className="text-xs text-gray-600 mb-4">Updated: {lastRefresh.toLocaleTimeString()}</p>}
 
@@ -141,7 +168,7 @@ export default function Dashboard() {
         {loading && <div className="text-center py-12 text-gray-500">Loading...</div>}
 
         {/* Cron Jobs */}
-        {!loading && activeTab === 'cron' && cronJobs.map((job) => (
+        {!loading && activeTab === 'cron' && (cronJobs.length === 0 ? <div className="text-center py-12 text-gray-500">No cron jobs found</div> : cronJobs.map((job) => (
           <div key={job.id} className="bg-gray-950 border border-gray-800 rounded-lg">
             <div className="p-3 cursor-pointer hover:bg-gray-900/50" onClick={() => toggleJobExpand(job.id)}>
               <div className="flex items-start justify-between">
@@ -183,7 +210,7 @@ export default function Dashboard() {
               </div>
             )}
           </div>
-        ))}
+        )))}
 
         {/* Tasks */}
         {!loading && activeTab === 'tasks' && (tasks.length === 0 ? <div className="text-center py-12 text-gray-500">No tasks</div> : (
@@ -207,7 +234,7 @@ export default function Dashboard() {
         ))}
 
         {/* Logs */}
-        {!loading && activeTab === 'logs' && (logs.length === 0 ? <div className="text-center py-12 text-gray-500">No logs</div> : logs.map((entry, i) => (
+        {!loading && activeTab === 'logs' && (logs.length === 0 ? <div className="text-center py-12 text-gray-500">Loading logs...</div> : logs.map((entry, i) => (
           <div key={i} className="bg-gray-950 border border-gray-800 rounded-lg p-3">
             <div className="flex items-start justify-between mb-1">
               <div>
@@ -302,7 +329,7 @@ export default function Dashboard() {
       </div>
 
       <footer className="mt-8 pt-4 border-t border-gray-900 text-center text-xs text-gray-600">
-        Sola Bible App • Mission Control v1.2
+        Sola Bible App • Mission Control v1.3
       </footer>
     </main>
   );
