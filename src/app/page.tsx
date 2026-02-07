@@ -37,8 +37,7 @@ function PriorityBadge({ priority }: { priority?: string }) {
   return priority ? <span className={`text-xs px-1.5 py-0.5 rounded ${colors[priority] || 'bg-gray-800'}`}>{priority}</span> : null;
 }
 
-// Global skills to hide by default
-const HIDDEN_GLOBAL_SKILLS = ['1password', 'apple-reminders', 'apple-notes', 'apple-music', 'apple-shortcuts', 'icloud-drive', 'ical'];
+// No list needed - we just filter by agent type
 
 export default function Dashboard() {
   const [cronJobs, setCronJobs] = useState<CronJob[]>([]);
@@ -100,9 +99,8 @@ export default function Dashboard() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  // Filter skills
-  const filteredSkills = showGlobalSkills ? skills : skills.filter(s => 
-    s.agent !== 'main (global)' || !HIDDEN_GLOBAL_SKILLS.some(h => s.name.toLowerCase().includes(h))
+  // Filter skills - hide ALL global skills by default
+  const filteredSkills = showGlobalSkills ? skills : skills.filter(s => s.agent !== 'main (global)'
   );
   const localSkills = skills.filter(s => s.agent === 'main');
 
