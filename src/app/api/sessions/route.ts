@@ -6,18 +6,11 @@ export const dynamic = 'force-dynamic';
 
 const AGENTS_DIR = '/home/ec2-user/.openclaw/agents';
 
+type SessionMessage = { role: string; preview: string; timestamp: number };
 type Session = {
-  id: string;
-  key: string;
-  agent: string;
-  kind: string;
-  channel: string;
-  displayName?: string;
-  model?: string;
-  updatedAt: number;
-  totalTokens: number;
-  messageCount: number;
-  recentMessages: { role: string; preview: string; timestamp: number }[];
+  id: string; key: string; agent: string; kind: string; channel: string;
+  displayName?: string; model?: string; updatedAt: number; totalTokens: number;
+  messageCount: number; recentMessages: SessionMessage[];
 };
 
 async function getSessionsForAgent(agentName: string): Promise<Session[]> {
@@ -37,33 +30,30 @@ async function getSessionsForAgent(agentName: string): Promise<Session[]> {
         
         if (lines.length === 0) continue;
         
-        // Parse session metadata from first line
         const firstLine = JSON.parse(lines[0]);
         
-        // Get message count and recent messages
-        let messageCount = 0;
-        const recentMessages: Session['recentMessages'] = [];
+        // Get ALL messages (not truncated)
+        const recentMessages: SessionMessage[] = [];
         
-        for (let i = lines.length - 1; i >= 0 && recentMessages.length < 3; i--) {
+        for (let i = lines.length - 1; i >= 0 && recentMessages.length < 20; i--) {
           try {
             const entry = JSON.parse(lines[i]);
             if (entry.type === 'message' && entry.message) {
-              messageCount++;
               const msg = entry.message;
               
               if (msg.role === 'user' || msg.role === 'assistant') {
-                let preview = '';
+                let content = '';
                 if (Array.isArray(msg.content)) {
                   const textPart = msg.content.find((c: any) => c.type === 'text');
-                  preview = textPart?.text?.slice(0, 100) || '';
+                  content = textPart?.text || '';
                 } else if (typeof msg.content === 'string') {
-                  preview = msg.content.slice(0, 100);
+                  content = msg.content;
                 }
                 
-                if (preview && recentMessages.length < 3) {
+                if (content) {
                   recentMessages.unshift({
                     role: msg.role,
-                    preview: preview.replace(/\n/g, ' '),
+                    preview: content, // Full content, not truncated
                     timestamp: new Date(entry.timestamp).getTime(),
                   });
                 }
@@ -72,8 +62,7 @@ async function getSessionsForAgent(agentName: string): Promise<Session[]> {
           } catch {}
         }
         
-        // Count all messages
-        messageCount = lines.filter(l => l.includes('"type":"message"')).length;
+        const messageCount = lines.filter(l => l.includes('"type":"message"')).length;
         
         sessions.push({
           id: file.replace('.jsonl', ''),
@@ -98,18 +87,14 @@ async function getSessionsForAgent(agentName: string): Promise<Session[]> {
 export async function GET() {
   try {
     const allSessions: Session[] = [];
-    
-    // Get sessions from all agents
     const agentDirs = await readdir(AGENTS_DIR, { withFileTypes: true });
     
     for (const agentDir of agentDirs) {
       if (!agentDir.isDirectory()) continue;
-      
       const sessions = await getSessionsForAgent(agentDir.name);
       allSessions.push(...sessions);
     }
     
-    // Sort by most recent
     allSessions.sort((a, b) => b.updatedAt - a.updatedAt);
     
     return NextResponse.json({ sessions: allSessions.slice(0, 30) });
