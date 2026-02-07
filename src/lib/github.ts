@@ -1,6 +1,15 @@
-// GitHub API client for Mission Control - no auth needed for public repos
+// GitHub API client for Mission Control
+const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 const REPO_OWNER = 'theo01327';
 const REPO_NAME = 'clawd-workspace';
+
+const headers: Record<string, string> = {
+  'Accept': 'application/vnd.github.v3+json',
+};
+
+if (GITHUB_TOKEN) {
+  headers['Authorization'] = `Bearer ${GITHUB_TOKEN}`;
+}
 
 export type Activity = {
   id: string;
@@ -16,10 +25,13 @@ export async function getActivities(): Promise<Activity[]> {
   try {
     const response = await fetch(
       `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/commits?per_page=50`,
-      { next: { revalidate: 60 } }
+      { headers, cache: 'no-store' }
     );
     
-    if (!response.ok) return [];
+    if (!response.ok) {
+      console.error('GitHub API error:', response.status, await response.text());
+      return [];
+    }
     
     const commits = await response.json();
     
@@ -42,7 +54,7 @@ export async function getMemoryFiles(): Promise<any[]> {
   try {
     const response = await fetch(
       `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/memory`,
-      { next: { revalidate: 60 } }
+      { headers, cache: 'no-store' }
     );
     
     if (!response.ok) return [];
@@ -54,14 +66,17 @@ export async function getMemoryFiles(): Promise<any[]> {
   }
 }
 
-// Search repository (requires auth for code search, so we'll search commits instead)
+// Search repository commits
 export async function searchRepo(query: string): Promise<any[]> {
   try {
-    // Search commits for the query
     const response = await fetch(
       `https://api.github.com/search/commits?q=${encodeURIComponent(query)}+repo:${REPO_OWNER}/${REPO_NAME}`,
       { 
-        headers: { 'Accept': 'application/vnd.github.cloak-preview' }
+        headers: {
+          ...headers,
+          'Accept': 'application/vnd.github.cloak-preview+json'
+        },
+        cache: 'no-store'
       }
     );
     
