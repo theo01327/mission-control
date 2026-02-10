@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import fs from 'fs';
 import path from 'path';
 
 const DRAFTS_DIR = '/home/ec2-user/clawd/projects/outreach-engine/reddit/drafts';
+const DONE_DIR = '/home/ec2-user/clawd/projects/outreach-engine/reddit/done';
 
 type Draft = {
   id: string;
@@ -73,9 +75,47 @@ export async function GET() {
     // Sort by created date, newest first
     drafts.sort((a, b) => b.createdAt - a.createdAt);
     
-    return NextResponse.json({ drafts });
+    // Count completed
+    let completedCount = 0;
+    if (fs.existsSync(DONE_DIR)) {
+      completedCount = fs.readdirSync(DONE_DIR).filter(f => f.endsWith('.md')).length;
+    }
+    
+    return NextResponse.json({ drafts, completedCount });
   } catch (error) {
     console.error('Outreach API error:', error);
-    return NextResponse.json({ drafts: [], error: 'Failed to load drafts' });
+    return NextResponse.json({ drafts: [], completedCount: 0, error: 'Failed to load drafts' });
+  }
+}
+
+// Mark a draft as done (move to done folder)
+export async function POST(request: NextRequest) {
+  try {
+    const { id, action } = await request.json();
+    
+    if (action !== 'done') {
+      return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
+    }
+    
+    const filename = `${id}.md`;
+    const sourcePath = path.join(DRAFTS_DIR, filename);
+    const destPath = path.join(DONE_DIR, filename);
+    
+    if (!fs.existsSync(sourcePath)) {
+      return NextResponse.json({ error: 'Draft not found' }, { status: 404 });
+    }
+    
+    // Create done directory if it doesn't exist
+    if (!fs.existsSync(DONE_DIR)) {
+      fs.mkdirSync(DONE_DIR, { recursive: true });
+    }
+    
+    // Move file to done folder
+    fs.renameSync(sourcePath, destPath);
+    
+    return NextResponse.json({ success: true, id });
+  } catch (error) {
+    console.error('Outreach POST error:', error);
+    return NextResponse.json({ error: 'Failed to mark as done' }, { status: 500 });
   }
 }

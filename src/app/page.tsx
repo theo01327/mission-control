@@ -60,7 +60,9 @@ export default function Dashboard() {
   const [fileModal, setFileModal] = useState<{ project: string; file: string; content: string } | null>(null);
   const [loadingFile, setLoadingFile] = useState(false);
   const [drafts, setDrafts] = useState<Draft[]>([]);
+  const [completedCount, setCompletedCount] = useState(0);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [markingDone, setMarkingDone] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -83,6 +85,7 @@ export default function Dashboard() {
       setProjects(results[5].projects || []);
       setHeartbeat(results[6]);
       setDrafts(results[7].drafts || []);
+      setCompletedCount(results[7].completedCount || 0);
       setLastRefresh(new Date());
       fetch('/api/logs?limit=15').then(r => r.json()).then(d => setLogs(d.entries || [])).catch(() => {});
     } catch (error) { console.error('Fetch error:', error); }
@@ -104,6 +107,24 @@ export default function Dashboard() {
     } catch (err) {
       console.error('Failed to copy:', err);
     }
+  };
+
+  const markAsDone = async (id: string) => {
+    setMarkingDone(id);
+    try {
+      const res = await fetch('/api/outreach', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, action: 'done' }),
+      });
+      if (res.ok) {
+        setDrafts(prev => prev.filter(d => d.id !== id));
+        setCompletedCount(prev => prev + 1);
+      }
+    } catch (err) {
+      console.error('Failed to mark as done:', err);
+    }
+    setMarkingDone(null);
   };
 
   const fetchFileContent = async (project: string, file: string) => {
@@ -213,8 +234,17 @@ export default function Dashboard() {
         {/* Outreach */}
         {!loading && activeTab === 'outreach' && (
           <div className="space-y-4">
+            {/* Stats bar */}
+            <div className="flex items-center justify-between text-xs text-gray-500">
+              <span>{drafts.length} pending</span>
+              <span className="text-green-500">{completedCount} completed</span>
+            </div>
+            
             {drafts.length === 0 ? (
-              <div className="text-center py-12 text-gray-500">No outreach drafts ready</div>
+              <div className="text-center py-12 text-gray-500">
+                <CheckCircle size={32} className="mx-auto mb-2 text-green-500" />
+                <p>All caught up! No pending outreach.</p>
+              </div>
             ) : (
               drafts.map(draft => (
                 <div key={draft.id} className="bg-gray-950 border border-gray-800 rounded-lg overflow-hidden">
@@ -240,20 +270,29 @@ export default function Dashboard() {
                   <div className="p-4">
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-xs text-gray-500 uppercase font-medium">Reply</span>
-                      <button
-                        onClick={() => copyToClipboard(draft.reply, draft.id)}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
-                          copiedId === draft.id 
-                            ? 'bg-green-600 text-white' 
-                            : 'bg-white text-black hover:bg-gray-200'
-                        }`}
-                      >
-                        {copiedId === draft.id ? (
-                          <><Check size={12} /> Copied!</>
-                        ) : (
-                          <><Copy size={12} /> Copy Reply</>
-                        )}
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => copyToClipboard(draft.reply, draft.id)}
+                          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                            copiedId === draft.id 
+                              ? 'bg-green-600 text-white' 
+                              : 'bg-white text-black hover:bg-gray-200'
+                          }`}
+                        >
+                          {copiedId === draft.id ? (
+                            <><Check size={12} /> Copied!</>
+                          ) : (
+                            <><Copy size={12} /> Copy</>
+                          )}
+                        </button>
+                        <button
+                          onClick={() => markAsDone(draft.id)}
+                          disabled={markingDone === draft.id}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-colors"
+                        >
+                          <CheckCircle size={12} /> {markingDone === draft.id ? 'Saving...' : 'Done'}
+                        </button>
+                      </div>
                     </div>
                     <pre className="bg-gray-900 border border-gray-800 rounded-lg p-3 text-xs text-gray-300 whitespace-pre-wrap overflow-x-auto max-h-64 overflow-y-auto font-sans">
                       {draft.reply}
