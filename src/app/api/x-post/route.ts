@@ -92,18 +92,58 @@ export async function POST(request: NextRequest) {
     }
     
     if (action === 'schedule') {
-      // Schedule for later using OpenClaw cron
-      if (!scheduleTime) {
-        return NextResponse.json({ error: 'Schedule time required' }, { status: 400 });
+      // Update the scheduled time in the draft file
+      if (!draftId || !scheduleTime) {
+        return NextResponse.json({ error: 'Draft ID and schedule time required' }, { status: 400 });
       }
       
-      // For now, return info about scheduling
-      // Full cron integration would require more setup
+      const [platform, fileId] = draftId.split(':');
+      if (platform !== 'x') {
+        return NextResponse.json({ error: 'Scheduling only supported for X' }, { status: 400 });
+      }
+      
+      const filePath = path.join(OUTREACH_BASE, 'x/drafts', `${fileId}.md`);
+      if (!fs.existsSync(filePath)) {
+        return NextResponse.json({ error: 'Draft not found' }, { status: 404 });
+      }
+      
+      let content = fs.readFileSync(filePath, 'utf-8');
+      
+      // Update or add scheduled time
+      if (content.includes('**Scheduled:**')) {
+        content = content.replace(/\*\*Scheduled:\*\*.+/, `**Scheduled:** ${scheduleTime}`);
+      } else {
+        // Add after Created line
+        content = content.replace(/(\*\*Created:\*\*.+)/, `$1\n**Scheduled:** ${scheduleTime}`);
+      }
+      
+      fs.writeFileSync(filePath, content);
+      
       return NextResponse.json({ 
         success: true, 
-        message: `Scheduled for ${scheduleTime}`,
-        note: 'Scheduling feature coming soon - use Post Now for immediate posting'
+        message: `Scheduled for ${scheduleTime}`
       });
+    }
+    
+    if (action === 'decline') {
+      // Remove/delete the draft
+      if (!draftId) {
+        return NextResponse.json({ error: 'Draft ID required' }, { status: 400 });
+      }
+      
+      const [platform, fileId] = draftId.split(':');
+      const filePath = path.join(OUTREACH_BASE, `${platform}/drafts`, `${fileId}.md`);
+      
+      if (fs.existsSync(filePath)) {
+        // Move to a declined folder instead of deleting
+        const declinedDir = path.join(OUTREACH_BASE, `${platform}/declined`);
+        if (!fs.existsSync(declinedDir)) {
+          fs.mkdirSync(declinedDir, { recursive: true });
+        }
+        fs.renameSync(filePath, path.join(declinedDir, `${fileId}.md`));
+      }
+      
+      return NextResponse.json({ success: true, message: 'Draft declined' });
     }
     
     return NextResponse.json({ error: 'Invalid action' }, { status: 400 });

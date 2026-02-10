@@ -47,6 +47,8 @@ type Draft = {
   hashtags: string;
   assets: string[];
   createdAt: number;
+  scheduledTime: string | null; // ISO timestamp
+  scheduledLabel: string | null; // "Today 3pm", "Tomorrow 9am", etc.
 };
 
 function stripMarkdown(text: string): string {
@@ -54,6 +56,42 @@ function stripMarkdown(text: string): string {
     .replace(/\*\*([^*]+)\*\*/g, '$1')
     .replace(/\*([^*]+)\*/g, '$1')
     .trim();
+}
+
+// Suggest optimal posting times for X (Pacific timezone)
+function suggestPostTime(): { iso: string; label: string } {
+  const now = new Date();
+  const pacific = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
+  const hour = pacific.getHours();
+  
+  // Optimal X posting times: 8am, 12pm, 5pm, 8pm Pacific
+  const optimalHours = [8, 12, 17, 20];
+  
+  // Find next optimal time
+  let targetHour = optimalHours.find(h => h > hour);
+  let targetDate = new Date(pacific);
+  
+  if (!targetHour) {
+    // All today's times passed, schedule for tomorrow
+    targetHour = optimalHours[0];
+    targetDate.setDate(targetDate.getDate() + 1);
+  }
+  
+  targetDate.setHours(targetHour, 0, 0, 0);
+  
+  // Convert back to UTC for storage
+  const utcDate = new Date(targetDate.toLocaleString('en-US', { timeZone: 'UTC' }));
+  
+  // Create label
+  const isToday = targetDate.getDate() === pacific.getDate();
+  const isTomorrow = targetDate.getDate() === pacific.getDate() + 1;
+  const timeStr = targetHour <= 12 ? `${targetHour}am` : `${targetHour - 12}pm`;
+  const dayStr = isToday ? 'Today' : isTomorrow ? 'Tomorrow' : targetDate.toLocaleDateString('en-US', { weekday: 'short' });
+  
+  return {
+    iso: targetDate.toISOString(),
+    label: `${dayStr} ${timeStr} PT`
+  };
 }
 
 function parseDraft(platform: string, filename: string, content: string, draftsDir: string): Draft | null {
@@ -142,6 +180,23 @@ function parseDraft(platform: string, filename: string, content: string, draftsD
     // Get file stats
     const stats = fs.statSync(path.join(draftsDir, filename));
     
+    // Extract scheduled time if present, or suggest one for X
+    let scheduledTime: string | null = null;
+    let scheduledLabel: string | null = null;
+    const scheduledMatch = content.match(/\*\*Scheduled:\*\*\s*(.+)/);
+    if (scheduledMatch) {
+      const parsed = new Date(scheduledMatch[1].trim());
+      if (!isNaN(parsed.getTime())) {
+        scheduledTime = parsed.toISOString();
+        scheduledLabel = scheduledMatch[1].trim();
+      }
+    } else if (platform === 'x') {
+      // Auto-suggest time for X posts
+      const suggested = suggestPostTime();
+      scheduledTime = suggested.iso;
+      scheduledLabel = suggested.label;
+    }
+    
     return {
       id: `${platform}:${filename.replace('.md', '')}`,
       platform,
@@ -154,6 +209,8 @@ function parseDraft(platform: string, filename: string, content: string, draftsD
       hashtags,
       assets,
       createdAt: stats.mtimeMs,
+      scheduledTime,
+      scheduledLabel,
     };
   } catch (e) {
     console.error('Error parsing draft:', platform, filename, e);

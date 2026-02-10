@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { RefreshCw, Clock, Bot, Zap, CheckCircle, XCircle, AlertCircle, ListTodo, FileText, ChevronDown, ChevronRight, Wrench, FolderOpen, Heart, MessageSquare, Filter, X, File, Send, Copy, Check, ExternalLink, Download, Image } from 'lucide-react';
+import { RefreshCw, Clock, Bot, Zap, CheckCircle, XCircle, AlertCircle, ListTodo, FileText, ChevronDown, ChevronRight, Wrench, FolderOpen, Heart, MessageSquare, Filter, X, File, Send, Copy, Check, ExternalLink, Download, Image, Trash2, Calendar } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
 type CronJob = { id: string; name: string; enabled: boolean; schedule: { kind: string; expr?: string; everyMs?: number }; state?: { nextRunAtMs?: number; lastStatus?: string }; payload: { model?: string } };
@@ -14,7 +14,7 @@ type ProjectFile = { name: string; path: string; size: number; isMarkdown: boole
 type Project = { id: string; name: string; description?: string; status?: string; files: number; updatedAt: number; markdownFiles?: ProjectFile[] };
 type HeartbeatRun = { timestamp: number; response: string; status: 'ok' | 'action'; model?: string };
 type Heartbeat = { config: { every: string; model: string }; lastHeartbeat: number | null; nextHeartbeat: number | null; runs?: HeartbeatRun[] };
-type Draft = { id: string; platform: string; filename: string; title: string; url: string; label: string; content: string; caption: string; hashtags: string; assets: string[]; createdAt: number };
+type Draft = { id: string; platform: string; filename: string; title: string; url: string; label: string; content: string; caption: string; hashtags: string; assets: string[]; createdAt: number; scheduledTime: string | null; scheduledLabel: string | null };
 type OutreachStats = Record<string, { pending: number; completed: number }>;
 
 function formatRelative(ms: number) {
@@ -67,6 +67,7 @@ export default function Dashboard() {
   const [markingDone, setMarkingDone] = useState<string | null>(null);
   const [postingId, setPostingId] = useState<string | null>(null);
   const [postResult, setPostResult] = useState<{ id: string; success: boolean; message: string } | null>(null);
+  const [decliningId, setDecliningId] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -176,6 +177,30 @@ export default function Dashboard() {
     setPostingId(null);
     // Clear result after 3 seconds
     setTimeout(() => setPostResult(null), 3000);
+  };
+
+  const declineDraft = async (draft: Draft) => {
+    setDecliningId(draft.id);
+    try {
+      const res = await fetch('/api/x-post', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'decline', draftId: draft.id }),
+      });
+      if (res.ok) {
+        setDrafts(prev => prev.filter(d => d.id !== draft.id));
+        setOutreachStats(prev => ({
+          ...prev,
+          [draft.platform]: {
+            ...prev[draft.platform],
+            pending: (prev[draft.platform]?.pending || 1) - 1,
+          }
+        }));
+      }
+    } catch (err) {
+      console.error('Failed to decline:', err);
+    }
+    setDecliningId(null);
   };
 
   const fetchFileContent = async (project: string, file: string) => {
@@ -331,7 +356,11 @@ export default function Dashboard() {
                               {platformLabels[draft.platform]}
                             </span>
                             {draft.label && <span className="text-xs text-gray-400">{draft.label}</span>}
-                            <span className="text-xs text-gray-500">{formatRelative(draft.createdAt)}</span>
+                            {draft.scheduledLabel && (
+                              <span className="flex items-center gap-1 text-xs text-yellow-400">
+                                <Calendar size={10} /> {draft.scheduledLabel}
+                              </span>
+                            )}
                           </div>
                           <h3 className="font-medium text-sm">{draft.title}</h3>
                         </div>
@@ -393,6 +422,14 @@ export default function Dashboard() {
                                 className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-colors"
                               >
                                 <CheckCircle size={12} /> {markingDone === draft.id ? 'Saving...' : 'Done'}
+                              </button>
+                              <button
+                                onClick={() => declineDraft(draft)}
+                                disabled={decliningId === draft.id}
+                                className="flex items-center gap-1.5 px-2 py-1.5 bg-gray-700 hover:bg-red-600 disabled:opacity-50 text-gray-300 hover:text-white text-xs font-medium rounded-lg transition-colors"
+                                title="Decline/Remove"
+                              >
+                                <Trash2 size={12} />
                               </button>
                             </div>
                           </div>
