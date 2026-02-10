@@ -14,7 +14,8 @@ type ProjectFile = { name: string; path: string; size: number; isMarkdown: boole
 type Project = { id: string; name: string; description?: string; status?: string; files: number; updatedAt: number; markdownFiles?: ProjectFile[] };
 type HeartbeatRun = { timestamp: number; response: string; status: 'ok' | 'action'; model?: string };
 type Heartbeat = { config: { every: string; model: string }; lastHeartbeat: number | null; nextHeartbeat: number | null; runs?: HeartbeatRun[] };
-type Draft = { id: string; filename: string; title: string; url: string; subreddit: string; reply: string; createdAt: number };
+type Draft = { id: string; platform: string; filename: string; title: string; url: string; label: string; content: string; caption: string; hashtags: string; assets: string[]; createdAt: number };
+type OutreachStats = Record<string, { pending: number; completed: number }>;
 
 function formatRelative(ms: number) {
   const now = Date.now(); const diff = ms - now; const absDiff = Math.abs(diff);
@@ -60,7 +61,8 @@ export default function Dashboard() {
   const [fileModal, setFileModal] = useState<{ project: string; file: string; content: string } | null>(null);
   const [loadingFile, setLoadingFile] = useState(false);
   const [drafts, setDrafts] = useState<Draft[]>([]);
-  const [completedCount, setCompletedCount] = useState(0);
+  const [outreachStats, setOutreachStats] = useState<OutreachStats>({});
+  const [outreachFilter, setOutreachFilter] = useState<string>('all');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [markingDone, setMarkingDone] = useState<string | null>(null);
 
@@ -85,7 +87,7 @@ export default function Dashboard() {
       setProjects(results[5].projects || []);
       setHeartbeat(results[6]);
       setDrafts(results[7].drafts || []);
-      setCompletedCount(results[7].completedCount || 0);
+      setOutreachStats(results[7].stats || {});
       setLastRefresh(new Date());
       fetch('/api/logs?limit=15').then(r => r.json()).then(d => setLogs(d.entries || [])).catch(() => {});
     } catch (error) { console.error('Fetch error:', error); }
@@ -118,8 +120,17 @@ export default function Dashboard() {
         body: JSON.stringify({ id, action: 'done' }),
       });
       if (res.ok) {
+        const draft = drafts.find(d => d.id === id);
+        if (draft) {
+          setOutreachStats(prev => ({
+            ...prev,
+            [draft.platform]: {
+              pending: (prev[draft.platform]?.pending || 1) - 1,
+              completed: (prev[draft.platform]?.completed || 0) + 1,
+            }
+          }));
+        }
         setDrafts(prev => prev.filter(d => d.id !== id));
-        setCompletedCount(prev => prev + 1);
       }
     } catch (err) {
       console.error('Failed to mark as done:', err);
@@ -234,72 +245,159 @@ export default function Dashboard() {
         {/* Outreach */}
         {!loading && activeTab === 'outreach' && (
           <div className="space-y-4">
-            {/* Stats bar */}
-            <div className="flex items-center justify-between text-xs text-gray-500">
-              <span>{drafts.length} pending</span>
-              <span className="text-green-500">{completedCount} completed</span>
+            {/* Platform filter & stats */}
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => setOutreachFilter('all')}
+                className={`px-3 py-1.5 text-xs font-medium rounded-lg ${outreachFilter === 'all' ? 'bg-white text-black' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}
+              >
+                All ({drafts.length})
+              </button>
+              {Object.entries(outreachStats).map(([platform, stats]) => {
+                const colors: Record<string, string> = { reddit: 'bg-orange-600', instagram: 'bg-pink-600', tiktok: 'bg-cyan-600', x: 'bg-blue-600' };
+                const filteredCount = drafts.filter(d => d.platform === platform).length;
+                if (filteredCount === 0 && stats.completed === 0) return null;
+                return (
+                  <button
+                    key={platform}
+                    onClick={() => setOutreachFilter(platform)}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-lg flex items-center gap-2 ${outreachFilter === platform ? `${colors[platform]} text-white` : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}
+                  >
+                    {platform.charAt(0).toUpperCase() + platform.slice(1)} ({filteredCount})
+                    {stats.completed > 0 && <span className="text-green-400">✓{stats.completed}</span>}
+                  </button>
+                );
+              })}
             </div>
             
-            {drafts.length === 0 ? (
+            {drafts.filter(d => outreachFilter === 'all' || d.platform === outreachFilter).length === 0 ? (
               <div className="text-center py-12 text-gray-500">
                 <CheckCircle size={32} className="mx-auto mb-2 text-green-500" />
                 <p>All caught up! No pending outreach.</p>
               </div>
             ) : (
-              drafts.map(draft => (
-                <div key={draft.id} className="bg-gray-950 border border-gray-800 rounded-lg overflow-hidden">
-                  <div className="p-4 border-b border-gray-800">
-                    <div className="flex items-start justify-between gap-4">
-                      <div>
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-xs px-2 py-0.5 bg-orange-900/50 text-orange-300 rounded">r/{draft.subreddit}</span>
-                          <span className="text-xs text-gray-500">{formatRelative(draft.createdAt)}</span>
+              drafts.filter(d => outreachFilter === 'all' || d.platform === outreachFilter).map(draft => {
+                const platformColors: Record<string, string> = { reddit: 'bg-orange-900/50 text-orange-300', instagram: 'bg-pink-900/50 text-pink-300', tiktok: 'bg-cyan-900/50 text-cyan-300', x: 'bg-blue-900/50 text-blue-300' };
+                const platformLabels: Record<string, string> = { reddit: 'Reddit', instagram: 'Instagram', tiktok: 'TikTok', x: 'X' };
+                const mainText = draft.content || draft.caption || '';
+                
+                return (
+                  <div key={draft.id} className="bg-gray-950 border border-gray-800 rounded-lg overflow-hidden">
+                    <div className="p-4 border-b border-gray-800">
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className={`text-xs px-2 py-0.5 rounded ${platformColors[draft.platform]}`}>
+                              {platformLabels[draft.platform]}
+                            </span>
+                            {draft.label && <span className="text-xs text-gray-400">{draft.label}</span>}
+                            <span className="text-xs text-gray-500">{formatRelative(draft.createdAt)}</span>
+                          </div>
+                          <h3 className="font-medium text-sm">{draft.title}</h3>
                         </div>
-                        <h3 className="font-medium text-sm">{draft.title}</h3>
-                      </div>
-                      <a 
-                        href={draft.url} 
-                        target="_blank" 
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium rounded-lg whitespace-nowrap"
-                      >
-                        <ExternalLink size={12} /> Open Post
-                      </a>
-                    </div>
-                  </div>
-                  <div className="p-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs text-gray-500 uppercase font-medium">Reply</span>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => copyToClipboard(draft.reply, draft.id)}
-                          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
-                            copiedId === draft.id 
-                              ? 'bg-green-600 text-white' 
-                              : 'bg-white text-black hover:bg-gray-200'
-                          }`}
-                        >
-                          {copiedId === draft.id ? (
-                            <><Check size={12} /> Copied!</>
-                          ) : (
-                            <><Copy size={12} /> Copy</>
-                          )}
-                        </button>
-                        <button
-                          onClick={() => markAsDone(draft.id)}
-                          disabled={markingDone === draft.id}
-                          className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-colors"
-                        >
-                          <CheckCircle size={12} /> {markingDone === draft.id ? 'Saving...' : 'Done'}
-                        </button>
+                        {draft.url && (
+                          <a 
+                            href={draft.url} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium rounded-lg whitespace-nowrap"
+                          >
+                            <ExternalLink size={12} /> Open
+                          </a>
+                        )}
                       </div>
                     </div>
-                    <pre className="bg-gray-900 border border-gray-800 rounded-lg p-3 text-xs text-gray-300 whitespace-pre-wrap overflow-x-auto max-h-64 overflow-y-auto font-sans">
-                      {draft.reply}
-                    </pre>
+                    <div className="p-4 space-y-3">
+                      {/* Main content */}
+                      {mainText && (
+                        <div>
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-xs text-gray-500 uppercase font-medium">
+                              {draft.platform === 'reddit' || draft.platform === 'x' ? 'Reply' : 'Content'}
+                            </span>
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => copyToClipboard(mainText, draft.id)}
+                                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                                  copiedId === draft.id 
+                                    ? 'bg-green-600 text-white' 
+                                    : 'bg-white text-black hover:bg-gray-200'
+                                }`}
+                              >
+                                {copiedId === draft.id ? <><Check size={12} /> Copied!</> : <><Copy size={12} /> Copy</>}
+                              </button>
+                              <button
+                                onClick={() => markAsDone(draft.id)}
+                                disabled={markingDone === draft.id}
+                                className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-colors"
+                              >
+                                <CheckCircle size={12} /> {markingDone === draft.id ? 'Saving...' : 'Done'}
+                              </button>
+                            </div>
+                          </div>
+                          <pre className="bg-gray-900 border border-gray-800 rounded-lg p-3 text-xs text-gray-300 whitespace-pre-wrap overflow-x-auto max-h-48 overflow-y-auto font-sans">
+                            {mainText}
+                          </pre>
+                        </div>
+                      )}
+                      
+                      {/* Caption (for Instagram/TikTok) */}
+                      {draft.caption && draft.content && (
+                        <div>
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-xs text-gray-500 uppercase font-medium">Caption</span>
+                            <button
+                              onClick={() => copyToClipboard(draft.caption, `${draft.id}-caption`)}
+                              className={`flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded transition-colors ${
+                                copiedId === `${draft.id}-caption` 
+                                  ? 'bg-green-600 text-white' 
+                                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                              }`}
+                            >
+                              {copiedId === `${draft.id}-caption` ? <Check size={10} /> : <Copy size={10} />}
+                            </button>
+                          </div>
+                          <pre className="bg-gray-900 border border-gray-800 rounded-lg p-2 text-xs text-gray-400 whitespace-pre-wrap max-h-24 overflow-y-auto font-sans">
+                            {draft.caption}
+                          </pre>
+                        </div>
+                      )}
+                      
+                      {/* Hashtags */}
+                      {draft.hashtags && (
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-xs text-gray-500 uppercase font-medium">Hashtags</span>
+                            <button
+                              onClick={() => copyToClipboard(draft.hashtags, `${draft.id}-hashtags`)}
+                              className={`flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded transition-colors ${
+                                copiedId === `${draft.id}-hashtags` 
+                                  ? 'bg-green-600 text-white' 
+                                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                              }`}
+                            >
+                              {copiedId === `${draft.id}-hashtags` ? <Check size={10} /> : <Copy size={10} />}
+                            </button>
+                          </div>
+                          <p className="text-xs text-blue-400">{draft.hashtags}</p>
+                        </div>
+                      )}
+                      
+                      {/* Assets */}
+                      {draft.assets && draft.assets.length > 0 && (
+                        <div>
+                          <span className="text-xs text-gray-500 uppercase font-medium">Assets</span>
+                          <div className="mt-1 flex flex-wrap gap-1">
+                            {draft.assets.map((asset, i) => (
+                              <span key={i} className="text-xs bg-gray-800 px-2 py-1 rounded text-gray-400">{asset.split('/').pop()}</span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         )}
