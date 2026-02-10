@@ -38,6 +38,12 @@ function parseDraft(filename: string, content: string): Draft | null {
     let reply = '';
     if (draftMatch) {
       reply = draftMatch[1].trim();
+      // Strip any markdown formatting (safeguard)
+      reply = reply
+        .replace(/\*\*([^*]+)\*\*/g, '$1')  // **bold** -> bold
+        .replace(/\*([^*]+)\*/g, '$1')       // *italic* -> italic
+        .replace(/^- /gm, '• ')              // - bullets -> • bullets (optional)
+        .trim();
     }
     
     // Get file stats for date
