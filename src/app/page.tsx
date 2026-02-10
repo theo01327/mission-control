@@ -65,6 +65,8 @@ export default function Dashboard() {
   const [outreachFilter, setOutreachFilter] = useState<string>('all');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [markingDone, setMarkingDone] = useState<string | null>(null);
+  const [postingId, setPostingId] = useState<string | null>(null);
+  const [postResult, setPostResult] = useState<{ id: string; success: boolean; message: string } | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -136,6 +138,44 @@ export default function Dashboard() {
       console.error('Failed to mark as done:', err);
     }
     setMarkingDone(null);
+  };
+
+  const postToX = async (draft: Draft) => {
+    if (draft.platform !== 'x') return;
+    setPostingId(draft.id);
+    setPostResult(null);
+    try {
+      const res = await fetch('/api/x-post', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'post',
+          draftId: draft.id,
+          text: draft.content,
+          replyToUrl: draft.url || null,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setPostResult({ id: draft.id, success: true, message: 'Posted!' });
+        // Remove from drafts list
+        setDrafts(prev => prev.filter(d => d.id !== draft.id));
+        setOutreachStats(prev => ({
+          ...prev,
+          x: {
+            pending: (prev.x?.pending || 1) - 1,
+            completed: (prev.x?.completed || 0) + 1,
+          }
+        }));
+      } else {
+        setPostResult({ id: draft.id, success: false, message: data.error || 'Failed to post' });
+      }
+    } catch (err) {
+      setPostResult({ id: draft.id, success: false, message: 'Network error' });
+    }
+    setPostingId(null);
+    // Clear result after 3 seconds
+    setTimeout(() => setPostResult(null), 3000);
   };
 
   const fetchFileContent = async (project: string, file: string) => {
@@ -326,6 +366,27 @@ export default function Dashboard() {
                               >
                                 {copiedId === draft.id ? <><Check size={12} /> Copied!</> : <><Copy size={12} /> Copy</>}
                               </button>
+                              {/* Post button for X */}
+                              {draft.platform === 'x' && (
+                                <button
+                                  onClick={() => postToX(draft)}
+                                  disabled={postingId === draft.id}
+                                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                                    postResult?.id === draft.id
+                                      ? postResult.success
+                                        ? 'bg-green-600 text-white'
+                                        : 'bg-red-600 text-white'
+                                      : 'bg-blue-600 hover:bg-blue-500 text-white'
+                                  } disabled:opacity-50`}
+                                >
+                                  <Send size={12} />
+                                  {postingId === draft.id 
+                                    ? 'Posting...' 
+                                    : postResult?.id === draft.id 
+                                      ? postResult.message 
+                                      : 'Post'}
+                                </button>
+                              )}
                               <button
                                 onClick={() => markAsDone(draft.id)}
                                 disabled={markingDone === draft.id}
