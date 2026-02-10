@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { RefreshCw, Clock, Bot, Zap, CheckCircle, XCircle, AlertCircle, ListTodo, FileText, ChevronDown, ChevronRight, Wrench, FolderOpen, Heart, MessageSquare, Filter, X, File } from 'lucide-react';
+import { RefreshCw, Clock, Bot, Zap, CheckCircle, XCircle, AlertCircle, ListTodo, FileText, ChevronDown, ChevronRight, Wrench, FolderOpen, Heart, MessageSquare, Filter, X, File, Send, Copy, Check, ExternalLink } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
 type CronJob = { id: string; name: string; enabled: boolean; schedule: { kind: string; expr?: string; everyMs?: number }; state?: { nextRunAtMs?: number; lastStatus?: string }; payload: { model?: string } };
@@ -14,6 +14,7 @@ type ProjectFile = { name: string; path: string; size: number; isMarkdown: boole
 type Project = { id: string; name: string; description?: string; status?: string; files: number; updatedAt: number; markdownFiles?: ProjectFile[] };
 type HeartbeatRun = { timestamp: number; response: string; status: 'ok' | 'action'; model?: string };
 type Heartbeat = { config: { every: string; model: string }; lastHeartbeat: number | null; nextHeartbeat: number | null; runs?: HeartbeatRun[] };
+type Draft = { id: string; filename: string; title: string; url: string; subreddit: string; reply: string; createdAt: number };
 
 function formatRelative(ms: number) {
   const now = Date.now(); const diff = ms - now; const absDiff = Math.abs(diff);
@@ -50,7 +51,7 @@ export default function Dashboard() {
   const [heartbeat, setHeartbeat] = useState<Heartbeat | null>(null);
   const [loading, setLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
-  const [activeTab, setActiveTab] = useState<string>('tasks');
+  const [activeTab, setActiveTab] = useState<string>('outreach');
   const [expandedItem, setExpandedItem] = useState<string | null>(null);
   const [jobLogs, setJobLogs] = useState<LogEntry[]>([]);
   const [loadingLogs, setLoadingLogs] = useState(false);
@@ -58,6 +59,8 @@ export default function Dashboard() {
   const [showGlobalSkills, setShowGlobalSkills] = useState(false);
   const [fileModal, setFileModal] = useState<{ project: string; file: string; content: string } | null>(null);
   const [loadingFile, setLoadingFile] = useState(false);
+  const [drafts, setDrafts] = useState<Draft[]>([]);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -70,6 +73,7 @@ export default function Dashboard() {
         fetch('/api/skills').then(r => r.json()),
         fetch('/api/projects').then(r => r.json()),
         fetch('/api/heartbeat').then(r => r.json()),
+        fetch('/api/outreach').then(r => r.json()),
       ]);
       setCronJobs(results[0].jobs || []);
       setAgents(results[1].agents || []);
@@ -78,6 +82,7 @@ export default function Dashboard() {
       setSkills(results[4].skills || []);
       setProjects(results[5].projects || []);
       setHeartbeat(results[6]);
+      setDrafts(results[7].drafts || []);
       setLastRefresh(new Date());
       fetch('/api/logs?limit=15').then(r => r.json()).then(d => setLogs(d.entries || [])).catch(() => {});
     } catch (error) { console.error('Fetch error:', error); }
@@ -89,6 +94,16 @@ export default function Dashboard() {
     try { setJobLogs((await (await fetch(`/api/logs?jobId=${jobId}&limit=10`)).json()).entries || []); }
     catch { setJobLogs([]); }
     setLoadingLogs(false);
+  };
+
+  const copyToClipboard = async (text: string, id: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 2000);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
   };
 
   const fetchFileContent = async (project: string, file: string) => {
@@ -113,6 +128,7 @@ export default function Dashboard() {
   const localSkills = skills.filter(s => s.agent === 'main');
 
   const tabs = [
+    { id: 'outreach', label: 'Outreach', icon: Send, count: drafts.length },
     { id: 'tasks', label: 'Tasks', icon: ListTodo, count: tasks.filter(t => t.status !== 'done').length },
     { id: 'projects', label: 'Projects', icon: FolderOpen, count: projects.length },
     { id: 'cron', label: 'Cron', icon: Clock, count: cronJobs.length },
@@ -193,6 +209,61 @@ export default function Dashboard() {
 
       <div className="space-y-2">
         {loading && <div className="text-center py-12 text-gray-500">Loading...</div>}
+
+        {/* Outreach */}
+        {!loading && activeTab === 'outreach' && (
+          <div className="space-y-4">
+            {drafts.length === 0 ? (
+              <div className="text-center py-12 text-gray-500">No outreach drafts ready</div>
+            ) : (
+              drafts.map(draft => (
+                <div key={draft.id} className="bg-gray-950 border border-gray-800 rounded-lg overflow-hidden">
+                  <div className="p-4 border-b border-gray-800">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-xs px-2 py-0.5 bg-orange-900/50 text-orange-300 rounded">r/{draft.subreddit}</span>
+                          <span className="text-xs text-gray-500">{formatRelative(draft.createdAt)}</span>
+                        </div>
+                        <h3 className="font-medium text-sm">{draft.title}</h3>
+                      </div>
+                      <a 
+                        href={draft.url} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium rounded-lg whitespace-nowrap"
+                      >
+                        <ExternalLink size={12} /> Open Post
+                      </a>
+                    </div>
+                  </div>
+                  <div className="p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs text-gray-500 uppercase font-medium">Reply</span>
+                      <button
+                        onClick={() => copyToClipboard(draft.reply, draft.id)}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                          copiedId === draft.id 
+                            ? 'bg-green-600 text-white' 
+                            : 'bg-white text-black hover:bg-gray-200'
+                        }`}
+                      >
+                        {copiedId === draft.id ? (
+                          <><Check size={12} /> Copied!</>
+                        ) : (
+                          <><Copy size={12} /> Copy Reply</>
+                        )}
+                      </button>
+                    </div>
+                    <pre className="bg-gray-900 border border-gray-800 rounded-lg p-3 text-xs text-gray-300 whitespace-pre-wrap overflow-x-auto max-h-64 overflow-y-auto font-sans">
+                      {draft.reply}
+                    </pre>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        )}
 
         {/* Tasks */}
         {!loading && activeTab === 'tasks' && (
