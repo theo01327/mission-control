@@ -110,14 +110,32 @@ function parseDraft(platform: string, filename: string, content: string, draftsD
       hashtags = hashtagMatch[1].trim();
     }
     
-    // Extract assets
+    // Extract assets - check for directory or file paths
     const assets: string[] = [];
     const assetsMatch = content.match(/## Assets\s*\n+([\s\S]*?)(?=\n---|\n##|$)/);
     if (assetsMatch) {
-      const assetLines = assetsMatch[1].trim().split('\n');
-      for (const line of assetLines) {
-        const pathMatch = line.match(/[\/\w\-\.]+\.(png|jpg|jpeg|mp4|mov)/i);
-        if (pathMatch) assets.push(pathMatch[0]);
+      const assetText = assetsMatch[1].trim();
+      // Check if it's a directory path
+      const dirMatch = assetText.match(/(\/home\/ec2-user\/clawd\/[^\s\n]+)/);
+      if (dirMatch) {
+        const dirPath = dirMatch[1].replace(/\/$/, '');
+        if (fs.existsSync(dirPath) && fs.statSync(dirPath).isDirectory()) {
+          // List image files in directory
+          const files = fs.readdirSync(dirPath)
+            .filter(f => /\.(png|jpg|jpeg|gif)$/i.test(f))
+            .sort()
+            .map(f => path.join(dirPath, f));
+          assets.push(...files);
+        }
+      }
+      // Also check for individual file paths
+      const fileMatches = assetText.match(/\/home\/ec2-user\/clawd\/[^\s\n]+\.(png|jpg|jpeg|mp4|mov)/gi);
+      if (fileMatches) {
+        for (const filePath of fileMatches) {
+          if (!assets.includes(filePath) && fs.existsSync(filePath)) {
+            assets.push(filePath);
+          }
+        }
       }
     }
     

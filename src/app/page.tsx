@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { RefreshCw, Clock, Bot, Zap, CheckCircle, XCircle, AlertCircle, ListTodo, FileText, ChevronDown, ChevronRight, Wrench, FolderOpen, Heart, MessageSquare, Filter, X, File, Send, Copy, Check, ExternalLink } from 'lucide-react';
+import { RefreshCw, Clock, Bot, Zap, CheckCircle, XCircle, AlertCircle, ListTodo, FileText, ChevronDown, ChevronRight, Wrench, FolderOpen, Heart, MessageSquare, Filter, X, File, Send, Copy, Check, ExternalLink, Download, Image } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
 type CronJob = { id: string; name: string; enabled: boolean; schedule: { kind: string; expr?: string; everyMs?: number }; state?: { nextRunAtMs?: number; lastStatus?: string }; payload: { model?: string } };
@@ -386,10 +386,36 @@ export default function Dashboard() {
                       {/* Assets */}
                       {draft.assets && draft.assets.length > 0 && (
                         <div>
-                          <span className="text-xs text-gray-500 uppercase font-medium">Assets</span>
-                          <div className="mt-1 flex flex-wrap gap-1">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-xs text-gray-500 uppercase font-medium">Assets ({draft.assets.length} images)</span>
+                            <a
+                              href={`/api/assets?path=${encodeURIComponent(draft.assets[0].substring(0, draft.assets[0].lastIndexOf('/')))}&action=list`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-xs text-blue-400 hover:underline"
+                            >
+                              Open folder
+                            </a>
+                          </div>
+                          <div className="grid grid-cols-4 md:grid-cols-6 gap-2">
                             {draft.assets.map((asset, i) => (
-                              <span key={i} className="text-xs bg-gray-800 px-2 py-1 rounded text-gray-400">{asset.split('/').pop()}</span>
+                              <div key={i} className="relative group">
+                                <img 
+                                  src={`/api/assets?path=${encodeURIComponent(asset)}`}
+                                  alt={`Slide ${i + 1}`}
+                                  className="w-full aspect-[3/4] object-cover rounded border border-gray-700 bg-gray-900"
+                                />
+                                <a
+                                  href={`/api/assets?path=${encodeURIComponent(asset)}`}
+                                  download={asset.split('/').pop()}
+                                  className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity rounded"
+                                >
+                                  <Download size={20} className="text-white" />
+                                </a>
+                                <span className="absolute bottom-1 left-1 text-[10px] bg-black/70 px-1 rounded text-white">
+                                  {i + 1}
+                                </span>
+                              </div>
                             ))}
                           </div>
                         </div>
