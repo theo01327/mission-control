@@ -3,6 +3,9 @@ import { NextRequest } from 'next/server';
 import fs from 'fs';
 import path from 'path';
 
+// Force dynamic rendering (reads from filesystem)
+export const dynamic = 'force-dynamic';
+
 const DRAFTS_DIR = '/home/ec2-user/clawd/projects/outreach-engine/reddit/drafts';
 const DONE_DIR = '/home/ec2-user/clawd/projects/outreach-engine/reddit/done';
 
